@@ -26,16 +26,20 @@ class MemoryStore:
 
     def get(self, mem_id: str) -> Optional[dict]:
         return self._store.get(mem_id)
-
+    
     def search(self, query: str, agent_id: Optional[str] = None) -> List[dict]:
         results = []
+        query_words = set(query.lower().split())
         for mem in self._store.values():
             if agent_id and mem["agent_id"] != agent_id:
                 continue
-            if query.lower() in mem["content"].lower():
+            content_words = set(mem["content"].lower().split())
+        # Match if any query word found in content
+            if query_words & content_words:
                 results.append(mem)
         return sorted(results, key=lambda m: m["retention_score"], reverse=True)
 
+    
     def update_retention(self, mem_id: str, score: float):
         if mem_id in self._store:
             self._store[mem_id]["retention_score"] = score

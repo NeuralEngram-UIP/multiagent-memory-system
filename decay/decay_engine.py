@@ -12,12 +12,13 @@ class DecayEngine:
         self.stability = stability
         self.decay_rate = decay_rate
 
-    def compute_retention(self, mem_id: str) -> float:
+    def compute_retention(self, mem_id: str, simulate_hours: float = 0.0) -> float:
         mem = self.memory_store.get(mem_id)
         if not mem:
             return 0.0
         last = datetime.fromisoformat(mem["last_accessed"])
         t = (datetime.utcnow() - last).total_seconds() / 3600
+        t += simulate_hours  # add simulated time
         score = math.exp(-self.decay_rate * t / self.stability)
         return round(score, 4)
 
@@ -29,7 +30,7 @@ class DecayEngine:
         new_score = self.compute_retention(mem_id)
         self.memory_store.update_retention(mem_id, new_score)
 
-    def run_decay_pass(self):
+    def run_decay_pass(self, simulate_hours: float = 0.0):
         for mem in self.memory_store.all():
-            score = self.compute_retention(mem["id"])
+            score = self.compute_retention(mem["id"], simulate_hours=simulate_hours)
             self.memory_store.update_retention(mem["id"], score)

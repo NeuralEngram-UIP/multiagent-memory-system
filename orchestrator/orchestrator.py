@@ -10,7 +10,10 @@ from agents.executor_agent import ExecutorAgent
 class Orchestrator:
     def __init__(self):
         self.memory_store = MemoryStore()
-        self.decay_engine = DecayEngine(memory_store=self.memory_store)
+        self.decay_engine = DecayEngine(memory_store=self.memory_store,
+    stability=10.0,   # higher = slower decay
+    decay_rate=0.3    # lower = gentler curve
+)
         self.agents = {
             "researcher": ResearcherAgent(self.memory_store, self.decay_engine),
             "synthesizer": SynthesizerAgent(self.memory_store, self.decay_engine),

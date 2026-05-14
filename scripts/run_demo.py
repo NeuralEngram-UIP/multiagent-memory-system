@@ -3,6 +3,7 @@ Demo Session Runner — runs a live session through the ExecutorAgent.
 """
 import sys
 import os
+import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from orchestrator.orchestrator import Orchestrator
@@ -18,20 +19,30 @@ def run_demo():
     orch.agents["executor"].store("MemGPT uses external memory for long context", tags=["AI"])
 
     print("✅ Memory seeded\n")
+    print("⏳ Simulating time passing (5 seconds)...")
+    time.sleep(5)
 
+    # Run decay pass to drop scores
+    # First decay pass
+    orch.decay_engine.run_decay_pass(simulate_hours=6)
+    print("📉 Decay pass complete (simulated 6hrs)\n")
+    
     # Run sessions
     sessions = [
-        "What do we know about memory retention?",
-        "How does spaced repetition work?",
-        "Explain MemGPT memory architecture",
+        ("What do we know about Ebbinghaus forgetting curve?", "executor"),
+        ("How does spaced repetition strengthen memory?", "executor"),
+        ("Explain MemGPT external memory for long context", "executor"),
     ]
 
-    for prompt in sessions:
+    for prompt, agent_id in sessions:
         print(f"🧠 Prompt: {prompt}")
-        result = orch.agents["executor"].run_session(prompt)
+        result = orch.agents[agent_id].run_session(prompt)
         print(f"   Context used: {result['context_used']} memories")
         print(f"   Response: {result['response']}")
         print(f"   Status: {result['status']}\n")
+
+    # Run another decay pass
+    orch.decay_engine.run_decay_pass(simulate_hours=12)
 
     # Show memory state after sessions
     print("=== Memory State After Sessions ===")
