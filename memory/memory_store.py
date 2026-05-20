@@ -1,50 +1,142 @@
 """
-Memory Store — handles storage, indexing, and retrieval of memory units.
+Unified Multi-Agent Memory Store
 """
-import uuid
-from datetime import datetime
-from typing import List, Dict, Optional
+
+from typing import Any, Dict, List, Optional
+
+from memory.memory_orchestrator import (
+    MemoryOrchestrator
+)
+
 
 class MemoryStore:
-    def __init__(self):
-        self._store: Dict[str, dict] = {}
+    """
+    Unified memory access layer.
+    """
 
-    def add(self, content: str, agent_id: str, tags: List[str] = []) -> dict:
-        mem_id = str(uuid.uuid4())
-        memory = {
-            "id": mem_id,
-            "content": content,
-            "agent_id": agent_id,
-            "tags": tags,
-            "created_at": datetime.utcnow().isoformat(),
-            "last_accessed": datetime.utcnow().isoformat(),
-            "access_count": 0,
-            "retention_score": 1.0
-        }
-        self._store[mem_id] = memory
-        return memory
+    def __init__(
+        self,
+        orchestrator: MemoryOrchestrator
+    ):
 
-    def get(self, mem_id: str) -> Optional[dict]:
-        return self._store.get(mem_id)
-    
-    def search(self, query: str, agent_id: Optional[str] = None) -> List[dict]:
-        results = []
-        query_words = set(query.lower().split())
-        for mem in self._store.values():
-            if agent_id and mem["agent_id"] != agent_id:
-                continue
-            content_words = set(mem["content"].lower().split())
-        # Match if any query word found in content
-            if query_words & content_words:
-                results.append(mem)
-        return sorted(results, key=lambda m: m["retention_score"], reverse=True)
+        self.orchestrator = (
+            orchestrator
+        )
 
-    
-    def update_retention(self, mem_id: str, score: float):
-        if mem_id in self._store:
-            self._store[mem_id]["retention_score"] = score
-            self._store[mem_id]["last_accessed"] = datetime.utcnow().isoformat()
-            self._store[mem_id]["access_count"] += 1
+    # ─────────────────────────────────────────────────────
 
-    def all(self) -> List[dict]:
-        return list(self._store.values())
+    def store(
+        self,
+        agent_id: str,
+        content: str,
+        embedding: List[float],
+        context: Optional[
+            Dict[str, Any]
+        ] = None
+    ) -> Dict[str, str]:
+        """
+        Store memory across all tiers.
+        """
+
+        if not agent_id.strip():
+
+            raise ValueError(
+                "agent_id cannot be empty"
+            )
+
+        if not content.strip():
+
+            raise ValueError(
+                "content cannot be empty"
+            )
+
+        return self.orchestrator.store(
+            agent_id=agent_id,
+            content=content,
+            context=context,
+            embedding=embedding
+        )
+
+    # ─────────────────────────────────────────────────────
+
+    def retrieve(
+        self,
+        agent_id: str,
+        query: str,
+        embedding: List[float],
+        top_k: int = 5,
+        token_budget: int = 4000
+    ) -> Dict[str, Any]:
+        """
+        Retrieve relevant memories.
+        """
+
+        return self.orchestrator.retrieve(
+            agent_id=agent_id,
+            query=query,
+            embedding=embedding,
+            top_k=top_k,
+            token_budget=token_budget
+        )
+
+    # ─────────────────────────────────────────────────────
+
+    def get_context(
+        self,
+        agent_id: str,
+        limit: int = 10
+    ):
+        """
+        Retrieve scoped working memory.
+        """
+
+        return self.orchestrator.get_context(
+            agent_id=agent_id,
+            limit=limit
+        )
+
+    # ─────────────────────────────────────────────────────
+
+    def reinforce(
+        self,
+        agent_id: str,
+        memory_id: str
+    ):
+        """
+        Reinforce memory.
+        """
+
+        self.orchestrator.reinforce(
+            agent_id=agent_id,
+            memory_id=memory_id
+        )
+
+    # ─────────────────────────────────────────────────────
+
+    def cleanup(self) -> int:
+
+        return (
+            self.orchestrator
+            .cleanup()
+        )
+
+    # ─────────────────────────────────────────────────────
+
+    def apply_decay(self):
+
+        self.orchestrator.apply_decay()
+
+    # ─────────────────────────────────────────────────────
+
+    def metrics(self):
+
+        if hasattr(
+            self.orchestrator,
+            "metrics"
+        ):
+            return (
+                self.orchestrator
+                .metrics()
+            )
+
+        return {}
