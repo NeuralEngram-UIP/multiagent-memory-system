@@ -120,7 +120,7 @@ class MemoryOrchestrator:
             with self.working_lock:
 
                 self.working_memory.add(
-                    agent_id=agent_id,
+                    # agent_id=agent_id,
                     role=role,
                     content=content
                 )

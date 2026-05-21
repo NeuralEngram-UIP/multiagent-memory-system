@@ -701,3 +701,226 @@ class Episode:
             )
 
         return weighted * self.retention(now)
+    
+
+# ─────────────────────────────────────────────────────────────
+# EpisodicMemoryStore — compatibility shim
+# ─────────────────────────────────────────────────────────────
+
+# class EpisodicMemoryStore:
+#     """
+#     Thin store wrapper around Episode.
+#     Satisfies orchestrator import.
+#     """
+
+#     def __init__(self):
+#         self._episodes: List[Episode] = []
+
+#     def add(self, episode: Episode) -> None:
+#         self._episodes.append(episode)
+
+#     def get_all(self) -> List[Episode]:
+#         return list(self._episodes)
+
+#     def get_by_id(
+#         self,
+#         episode_id: str
+#     ) -> Optional[Episode]:
+#         for ep in self._episodes:
+#             if ep.episode_id == episode_id:
+#                 return ep
+#         return None
+
+#     def remove(
+#         self,
+#         episode_id: str
+#     ) -> bool:
+#         before = len(self._episodes)
+#         self._episodes = [
+#             ep for ep in self._episodes
+#             if ep.episode_id != episode_id
+#         ]
+#         return len(self._episodes) < before
+    
+
+# #-------------------------------------------------------------------------------------------------------------------------------------------
+#     def apply_decay(self) -> None:
+#         """
+#         Remove forgotten episodes
+#         based on Ebbinghaus retention.
+#         """
+#         self._episodes = [
+#             ep for ep in self._episodes
+#             if not ep.is_forgotten()
+#         ]
+
+#     def prune_forgotten(self) -> List[str]:
+#         """
+#         Remove forgotten episodes.
+#         Returns list of pruned episode IDs.
+#         """
+#         forgotten = [
+#             ep.episode_id
+#             for ep in self._episodes
+#             if ep.is_forgotten()
+#         ]
+#         self._episodes = [
+#             ep for ep in self._episodes
+#             if not ep.is_forgotten()
+#         ]
+#         return forgotten
+    
+
+
+#     def grounded_retrieve(
+#         self,
+#         query: str,
+#         embedding: List[float],
+#         top_k: int = 5,
+#         agent_id: Optional[str] = None
+#     ) -> List[Episode]:
+#         """
+#         Retrieve episodes by semantic similarity.
+#         Filters by agent_id if provided.
+#         Skips forgotten episodes.
+#         """
+#         candidates = [
+#             ep for ep in self._episodes
+#             if not ep.is_forgotten()
+#             and (
+#                 agent_id is None
+#                 or ep.agent_id == agent_id
+#                 or ep.shared
+#             )
+#         ]
+
+#         if not candidates or not embedding:
+#             return []
+
+#         scored = []
+#         for ep in candidates:
+#             ep_embedding = simple_embedding(
+#                 str(ep.content)
+#             )
+#             score = cosine_similarity(
+#                 embedding,
+#                 ep_embedding
+#             )
+#             if score >= SIMILARITY_THRESHOLD:
+#                 scored.append((score, ep))
+
+#         scored.sort(key=lambda x: x[0], reverse=True)
+
+#         return [ep for _, ep in scored[:top_k]]
+
+
+class EpisodicMemoryStore:
+    """
+    Thin store wrapper around Episode.
+    Satisfies orchestrator import.
+    """
+
+    def __init__(self):
+        self._episodes: List[Episode] = []
+
+    def add(
+        self,
+        memory_id: str,
+        agent_id: str,
+        content: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        ep = Episode(
+            episode_id=memory_id,
+            agent_id=agent_id,
+            content=content,
+            context=context or {},
+            shared=(context or {}).get("shared", False)
+        )
+        self._episodes.append(ep)
+        return ep.episode_id
+
+    def get_all(self) -> List[Episode]:
+        return list(self._episodes)
+
+    def get_by_id(
+        self,
+        episode_id: str
+    ) -> Optional[Episode]:
+        for ep in self._episodes:
+            if ep.episode_id == episode_id:
+                return ep
+        return None
+
+    def remove(
+        self,
+        episode_id: str
+    ) -> bool:
+        before = len(self._episodes)
+        self._episodes = [
+            ep for ep in self._episodes
+            if ep.episode_id != episode_id
+        ]
+        return len(self._episodes) < before
+
+    def delete(
+        self,
+        episode_id: str
+    ) -> bool:
+        return self.remove(episode_id)
+
+    def recall(
+        self,
+        episode_id: str
+    ) -> Optional[Episode]:
+        ep = self.get_by_id(episode_id)
+        if ep:
+            ep.review_count += 1
+            ep.last_reviewed_at = datetime.now(timezone.utc)
+            ep = reinforce_memory(ep)
+        return ep
+
+    def grounded_retrieve(
+        self,
+        query: str,
+        embedding: List[float],
+        top_k: int = 5,
+        agent_id: Optional[str] = None
+    ) -> List[Episode]:
+        candidates = [
+            ep for ep in self._episodes
+            if not ep.is_forgotten()
+            and (
+                agent_id is None
+                or ep.agent_id == agent_id
+                or ep.shared
+            )
+        ]
+        if not candidates or not embedding:
+            return []
+        scored = []
+        for ep in candidates:
+            ep_embedding = simple_embedding(str(ep.content))
+            score = cosine_similarity(embedding, ep_embedding)
+            if score >= SIMILARITY_THRESHOLD:
+                scored.append((score, ep))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [ep for _, ep in scored[:top_k]]
+
+    def apply_decay(self) -> None:
+        self._episodes = [
+            ep for ep in self._episodes
+            if not ep.is_forgotten()
+        ]
+
+    def prune_forgotten(self) -> List[str]:
+        forgotten = [
+            ep.episode_id
+            for ep in self._episodes
+            if ep.is_forgotten()
+        ]
+        self._episodes = [
+            ep for ep in self._episodes
+            if not ep.is_forgotten()
+        ]
+        return forgotten
