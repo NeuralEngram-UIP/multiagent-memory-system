@@ -27,7 +27,9 @@ import logging
 import math
 import threading
 import time
+import tempfile
 
+from qdrant_client.local.qdrant_local import QdrantLocal
 from dataclasses import dataclass
 
 from typing import (
@@ -126,9 +128,8 @@ class SemanticMemoryStore:
         vector_size: int = (
             VECTOR_SIZE
         ),
-        storage_path: str = (
-            "./qdrant_data"
-        )
+        storage_path: str = None
+       
     ):
 
         self.collection_name = (
@@ -164,22 +165,23 @@ class SemanticMemoryStore:
 
         self.total_latency = 0.0
 
+        import tempfile
+        _tmp = tempfile.mkdtemp()
         try:
-
             self.client = QdrantClient(
-                path=storage_path
+                location=":memory:"
             )
-
+            self._create_collection()
+     
             self._create_collection()
 
         except Exception:
-
             logger.exception(
-                "Failed initializing "
-                "Qdrant client"
-            )
-
+        "Failed initializing "
+        "Qdrant client"
+    )
             raise
+     
 
         logger.info(
             "SemanticMemoryStore initialized "

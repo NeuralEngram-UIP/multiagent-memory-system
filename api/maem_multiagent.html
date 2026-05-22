@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAEM — Multi-Agent Ebbinghaus Memory</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg2: #111118;
+    --bg3: #16161f;
+    --border: #1e1e2e;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #475569;
+    --executor: #00e5ff;
+    --planner: #7c3aed;
+    --memory: #10b981;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 14px; font-weight: 700;
+    color: #000;
+  }
+
+  .logo-text h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 16px; font-weight: 700;
+    color: var(--text);
+  }
+
+  .logo-text p {
+    font-size: 11px; color: var(--text3);
+    font-family: 'Space Mono', monospace;
+  }
+
+  .agent-tabs {
+    display: flex; gap: 8px;
+  }
+
+  .agent-tab {
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .agent-tab.executor { border-color: var(--executor); color: var(--executor); }
+  .agent-tab.planner  { border-color: var(--planner);  color: var(--planner);  }
+  .agent-tab.memory   { border-color: var(--memory);   color: var(--memory);   }
+  .agent-tab.active.executor { background: var(--executor); color: #000; }
+  .agent-tab.active.planner  { background: var(--accent2);  color: #fff; }
+  .agent-tab.active.memory   { background: var(--memory);   color: #000; }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent3);
+    box-shadow: 0 0 8px var(--accent3);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Main layout ── */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Left — Chat ── */
+  .chat-area {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  /* routing banner */
+  .routing-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-family: 'Space Mono', monospace;
+    color: var(--text2);
+    flex-shrink: 0;
+  }
+
+  .route-step {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .route-step.planner  { background: rgba(124,58,237,0.2); color: var(--planner);  border: 1px solid rgba(124,58,237,0.3); }
+  .route-step.executor { background: rgba(0,229,255,0.1);  color: var(--executor); border: 1px solid rgba(0,229,255,0.2); }
+  .route-step.memory   { background: rgba(16,185,129,0.1); color: var(--memory);   border: 1px solid rgba(16,185,129,0.2); }
+
+  .route-arrow { color: var(--text3); font-size: 14px; }
+
+  .route-step.active {
+    box-shadow: 0 0 10px currentColor;
+    animation: glow 1s ease-in-out;
+  }
+
+  @keyframes glow {
+    0% { box-shadow: 0 0 0 currentColor; }
+    50% { box-shadow: 0 0 15px currentColor; }
+    100% { box-shadow: 0 0 5px currentColor; }
+  }
+
+  /* messages */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg {
+    display: flex;
+    gap: 12px;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .msg.user { flex-direction: row-reverse; }
+
+  .msg-avatar {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .msg.user .msg-avatar { background: linear-gradient(135deg, #334155, #1e293b); color: var(--text2); }
+  .msg.agent .msg-avatar { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #000; font-family: 'Space Mono', monospace; font-size: 10px; }
+
+  .msg-body { max-width: 70%; }
+
+  .msg-meta {
+    font-size: 11px; color: var(--text3);
+    margin-bottom: 4px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .msg.user .msg-meta { text-align: right; }
+
+  .msg-bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .msg.user .msg-bubble {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-top-right-radius: 4px;
+  }
+
+  .msg.agent .msg-bubble {
+    background: linear-gradient(135deg, rgba(0,229,255,0.05), rgba(124,58,237,0.05));
+    border: 1px solid rgba(0,229,255,0.15);
+    border-top-left-radius: 4px;
+  }
+
+  .msg-tags {
+    display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;
+  }
+
+  .msg-tag {
+    font-size: 10px; padding: 2px 8px;
+    border-radius: 10px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .msg-tag.retrieved { background: rgba(16,185,129,0.15); color: var(--memory); border: 1px solid rgba(16,185,129,0.3); }
+  .msg-tag.agent-used { background: rgba(0,229,255,0.1); color: var(--executor); border: 1px solid rgba(0,229,255,0.2); }
+  .msg-tag.routed { background: rgba(124,58,237,0.15); color: var(--planner); border: 1px solid rgba(124,58,237,0.3); }
+
+  /* typing indicator */
+  .typing {
+    display: flex; gap: 4px; align-items: center;
+    padding: 12px 16px;
+  }
+
+  .typing span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    animation: bounce 1.2s infinite;
+  }
+
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); opacity: 0.4; }
+    50% { transform: translateY(-6px); opacity: 1; }
+  }
+
+  /* input */
+  .input-area {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: flex; gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .user-select {
+    padding: 10px 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .msg-input {
+    flex: 1;
+    padding: 10px 16px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: 'DM Sans', sans-serif;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .msg-input:focus { border-color: var(--accent); }
+  .msg-input::placeholder { color: var(--text3); }
+
+  .send-btn {
+    width: 42px; height: 42px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none; border-radius: 10px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.2s, transform 0.1s;
+    flex-shrink: 0;
+  }
+
+  .send-btn:hover { opacity: 0.85; }
+  .send-btn:active { transform: scale(0.95); }
+
+  .send-btn svg { width: 18px; height: 18px; fill: #000; }
+
+  /* ── Right — Memory Panel ── */
+  .memory-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg2);
+  }
+
+  .panel-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .panel-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    color: var(--text2);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .episode-count {
+    background: var(--accent);
+    color: #000;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 10px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .memory-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .memory-list::-webkit-scrollbar { width: 3px; }
+  .memory-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .memory-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    animation: fadeIn 0.3s ease;
+    transition: border-color 0.2s;
+  }
+
+  .memory-card:hover { border-color: rgba(0,229,255,0.3); }
+
+  .memory-card.fresh { border-color: rgba(0,229,255,0.4); }
+
+  .memory-agent-badge {
+    font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px;
+    font-family: 'Space Mono', monospace;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    display: inline-block;
+  }
+
+  .badge-executor { background: rgba(0,229,255,0.15); color: var(--executor); }
+  .badge-planner  { background: rgba(124,58,237,0.15); color: var(--planner); }
+  .badge-memory   { background: rgba(16,185,129,0.15); color: var(--memory); }
+  .badge-user     { background: rgba(148,163,184,0.15); color: var(--text2); }
+
+  .memory-content {
+    font-size: 12px; color: var(--text);
+    line-height: 1.4; margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .memory-stats {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 4px; margin-bottom: 8px;
+  }
+
+  .stat { font-size: 10px; color: var(--text3); font-family: 'Space Mono', monospace; }
+  .stat span { color: var(--text2); font-weight: 700; }
+
+  .retention-bar-wrap {
+    height: 3px; background: var(--border); border-radius: 2px;
+  }
+
+  .retention-bar {
+    height: 100%; border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  /* decay curve */
+  .curve-section {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .curve-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+
+  canvas#curveChart {
+    width: 100%; height: 80px;
+    display: block;
+  }
+
+  /* stats footer */
+  .stats-footer {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .stat-box {
+    padding: 12px;
+    text-align: center;
+    border-right: 1px solid var(--border);
+  }
+
+  .stat-box:last-child { border-right: none; }
+
+  .stat-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 18px; font-weight: 700;
+    color: var(--accent);
+  }
+
+  .stat-lbl {
+    font-size: 10px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-top: 2px;
+  }
+
+  /* welcome */
+  .welcome {
+    text-align: center; padding: 40px 20px;
+    color: var(--text3);
+  }
+
+  .welcome .w-icon {
+    font-size: 40px; margin-bottom: 12px;
+  }
+
+  .welcome h3 {
+    font-size: 16px; color: var(--text2);
+    margin-bottom: 8px;
+  }
+
+  .welcome p { font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">M</div>
+    <div class="logo-text">
+      <h1>MAEM</h1>
+      <p>Multi-Agent Ebbinghaus Memory</p>
+    </div>
+  </div>
+
+  <div class="agent-tabs">
+    <div class="agent-tab executor active" onclick="setActiveAgent('executor')">⚡ Executor</div>
+    <div class="agent-tab planner"  onclick="setActiveAgent('planner')">🧭 Planner</div>
+    <div class="agent-tab memory"   onclick="setActiveAgent('memory')">🧠 Memory</div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div class="status-dot"></div>
+    <span style="font-size:12px;color:var(--text3);font-family:'Space Mono',monospace;" id="modelLabel">claude-sonnet</span>
+  </div>
+</header>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Chat -->
+  <div class="chat-area">
+
+    <!-- Routing banner -->
+    <div class="routing-banner">
+      <span style="color:var(--text3)">PIPELINE:</span>
+      <div class="route-step planner"  id="routePlanner">🧭 PlannerAgent</div>
+      <span class="route-arrow">→</span>
+      <div class="route-step executor" id="routeExecutor">⚡ ExecutorAgent</div>
+      <span class="route-arrow">→</span>
+      <div class="route-step memory"   id="routeMemory">🧠 MemoryStore</div>
+      <span style="margin-left:auto;font-size:11px;" id="routeStatus">Ready</span>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages" id="messages">
+      <div class="welcome">
+        <div class="w-icon">🧠</div>
+        <h3>MAEM Multi-Agent System</h3>
+        <p>Three specialized agents — Planner, Executor, and Memory — working together with Ebbinghaus decay. Start a conversation to see the pipeline in action.</p>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-area">
+      <select class="user-select" id="userSelect">
+        <option value="alice">Alice</option>
+        <option value="bob">Bob</option>
+        <option value="charlie">Charlie</option>
+        <option value="rajan">Rajan (AD)</option>
+      </select>
+      <input
+        class="msg-input"
+        id="msgInput"
+        type="text"
+        placeholder="Type a message..."
+        onkeydown="if(event.key==='Enter') sendMessage()"
+      />
+      <button class="send-btn" onclick="sendMessage()">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Memory Panel -->
+  <div class="memory-panel">
+    <div class="panel-header">
+      <span class="panel-title">Episodic Memory</span>
+      <span class="episode-count" id="episodeCount">0 episodes</span>
+    </div>
+
+    <div class="memory-list" id="memoryList">
+      <div style="text-align:center;padding:40px 16px;color:var(--text3);font-size:13px;">
+        No memories yet.<br>Start a conversation!
+      </div>
+    </div>
+
+    <!-- Decay Curve -->
+    <div class="curve-section">
+      <div class="curve-title">Retention Curve (Ebbinghaus)</div>
+      <canvas id="curveChart"></canvas>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-footer">
+      <div class="stat-box">
+        <div class="stat-val" id="statTotal">0</div>
+        <div class="stat-lbl">Total</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="statRetention">—</div>
+        <div class="stat-lbl">Avg Retention</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="statRetrieved">0</div>
+        <div class="stat-lbl">Retrieved</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://127.0.0.1:8000';
+let activeAgent = 'executor';
+let totalRetrieved = 0;
+let memories = [];
+
+function setActiveAgent(agent) {
+  activeAgent = agent;
+  document.querySelectorAll('.agent-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.agent-tab.${agent}`).classList.add('active');
+}
+
+function animateRoute(path) {
+  const steps = ['routePlanner', 'routeExecutor', 'routeMemory'];
+  steps.forEach(s => document.getElementById(s).classList.remove('active'));
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i < steps.length) {
+      document.getElementById(steps[i]).classList.add('active');
+      i++;
+    } else {
+      clearInterval(interval);
+    }
+  }, 400);
+}
+
+function addMessage(role, text, meta = {}) {
+  const msgs = document.getElementById('messages');
+  // remove welcome
+  const welcome = msgs.querySelector('.welcome');
+  if (welcome) welcome.remove();
+
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = role === 'user' ? (document.getElementById('userSelect').value[0].toUpperCase()) : 'M';
+
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+
+  const metaDiv = document.createElement('div');
+  metaDiv.className = 'msg-meta';
+  metaDiv.textContent = role === 'user'
+    ? document.getElementById('userSelect').value
+    : `MAEM · ${meta.agentUsed || 'executor'} agent`;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = text;
+
+  body.appendChild(metaDiv);
+  body.appendChild(bubble);
+
+  if (role === 'agent' && (meta.memoriesRetrieved > 0 || meta.routingPath)) {
+    const tags = document.createElement('div');
+    tags.className = 'msg-tags';
+    if (meta.memoriesRetrieved > 0) {
+      const t = document.createElement('span');
+      t.className = 'msg-tag retrieved';
+      t.textContent = `⚡ ${meta.memoriesRetrieved} memories retrieved`;
+      tags.appendChild(t);
+      totalRetrieved += meta.memoriesRetrieved;
+      document.getElementById('statRetrieved').textContent = totalRetrieved;
+    }
+    const t2 = document.createElement('span');
+    t2.className = 'msg-tag routed';
+    t2.textContent = '🧭 Planner → Executor';
+    tags.appendChild(t2);
+    body.appendChild(tags);
+  }
+
+  div.appendChild(avatar);
+  div.appendChild(body);
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function addTyping() {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg agent';
+  div.id = 'typingIndicator';
+  div.innerHTML = `
+    <div class="msg-avatar">M</div>
+    <div class="msg-body">
+      <div class="msg-bubble">
+        <div class="typing"><span></span><span></span><span></span></div>
+      </div>
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeTyping() {
+  const t = document.getElementById('typingIndicator');
+  if (t) t.remove();
+}
+
+function retentionColor(r) {
+  if (r > 0.7) return '#10b981';
+  if (r > 0.4) return '#f59e0b';
+  return '#ef4444';
+}
+
+function updateMemoryPanel(newMemory) {
+  if (newMemory) memories.unshift(newMemory);
+
+  const list = document.getElementById('memoryList');
+  list.innerHTML = '';
+
+  if (memories.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:40px 16px;color:var(--text3);font-size:13px;">No memories yet.</div>';
+    return;
+  }
+
+  memories.slice(0, 8).forEach((m, idx) => {
+    const card = document.createElement('div');
+    card.className = `memory-card ${idx === 0 ? 'fresh' : ''}`;
+
+    const retention = m.retention || 1.0;
+    const stability = m.stability || 3.6;
+    const reviews = m.reviews || 0;
+    const importance = m.importance || 0.5;
+    const agentId = m.agentId || 'user';
+    const color = retentionColor(retention);
+
+    card.innerHTML = `
+      <span class="memory-agent-badge badge-${agentId}">${agentId}</span>
+      <div class="memory-content">${m.content}</div>
+      <div class="memory-stats">
+        <div class="stat">STABILITY <span>${stability}h</span></div>
+        <div class="stat">REVIEWS <span>${reviews}</span></div>
+        <div class="stat">IMPORTANCE <span>${importance}</span></div>
+        <div class="stat">RETENTION <span style="color:${color}">${Math.round(retention*100)}%</span></div>
+      </div>
+      <div class="retention-bar-wrap">
+        <div class="retention-bar" style="width:${retention*100}%;background:${color}"></div>
+      </div>`;
+    list.appendChild(card);
+  });
+
+  document.getElementById('episodeCount').textContent = `${memories.length} episodes`;
+  document.getElementById('statTotal').textContent = memories.length;
+
+  const avgRet = memories.reduce((s, m) => s + (m.retention || 1), 0) / memories.length;
+  document.getElementById('statRetention').textContent = Math.round(avgRet * 100) + '%';
+
+  drawCurve(avgRet);
+}
+
+function drawCurve(currentRetention) {
+  const canvas = document.getElementById('curveChart');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio || 300;
+  canvas.height = 80 * window.devicePixelRatio || 80;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+  const W = canvas.offsetWidth || 300;
+  const H = 80;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid line
+  ctx.strokeStyle = '#1e1e2e';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.6);
+  ctx.lineTo(W, H * 0.6);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Curve
+  const S = 1.5;
+  const lambda = 0.5;
+  ctx.beginPath();
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 2;
+
+  for (let x = 0; x <= W; x++) {
+    const t = (x / W) * 48;
+    const r = Math.exp(-lambda * t / S);
+    const y = H - (r * (H - 8)) - 4;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Current point
+  const tNow = (1 - currentRetention) * 48;
+  const xNow = (tNow / 48) * W;
+  const yNow = H - (currentRetention * (H - 8)) - 4;
+
+  ctx.beginPath();
+  ctx.arc(xNow, yNow, 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#00e5ff';
+  ctx.fill();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+async function sendMessage() {
+  const input = document.getElementById('msgInput');
+  const msg = input.value.trim();
+  const userId = document.getElementById('userSelect').value;
+  if (!msg) return;
+
+  input.value = '';
+  addMessage('user', msg);
+  addTyping();
+  animateRoute(['planner', 'executor', 'memory']);
+  document.getElementById('routeStatus').textContent = 'Processing...';
+
+  try {
+    const res = await fetch(`${API}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, user_id: userId })
+    });
+
+    const data = await res.json();
+    removeTyping();
+    document.getElementById('routeStatus').textContent = 'Ready';
+
+    addMessage('agent', data.reply || data.response || 'No response', {
+      agentUsed: data.agent_used || 'executor',
+      memoriesRetrieved: data.memories_retrieved || 0,
+      routingPath: data.routing_path
+    });
+
+    // Add to memory panel
+    if (!msg.endsWith('?')) {
+      updateMemoryPanel({
+        content: msg,
+        retention: 1.0,
+        stability: 3.6,
+        reviews: 0,
+        importance: 0.75,
+        agentId: 'user'
+      });
+    }
+
+  } catch (err) {
+    removeTyping();
+    document.getElementById('routeStatus').textContent = 'Error';
+    addMessage('agent', '⚠️ Could not connect to MAEM server. Make sure it\'s running on port 8000.');
+  }
+}
+
+// Init curve
+drawCurve(1.0);
+</script>
+</body>
+</html>

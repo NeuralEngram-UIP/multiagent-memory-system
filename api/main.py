@@ -7,6 +7,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from dotenv import load_dotenv
+from fastapi.responses import FileResponse
+import os
+import os
+load_dotenv()
+from orchestrator.orchestrator import Orchestrator
+orch = Orchestrator()
 
 from memory.working_memory import WorkingMemory
 from memory.episodic_memory import EpisodicMemoryStore
@@ -164,3 +171,35 @@ def shutdown():
     logger.info(
         "Scheduler stopped."
     )
+class ChatRequest(BaseModel):
+    message: str
+    user_id: str = "default"
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    result = orch.route(req.message)
+    fused = result.get("retrieved_memories", {}).get("fused_memory", [])
+    return {
+        "reply": result["response"],
+        "agent_used": "executor",
+        "memories_retrieved": len(fused),
+        "routing_path": ["planner", "executor"]
+    }
+
+
+@app.get("/ui")
+def serve_ui():
+    html_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "maem_multiagent.html"
+    )
+    return FileResponse(html_path)
+
+@app.get("/memories")
+def get_all_memories():
+    try:
+        results = memory_store.get_all_memories()
+        return {"episodes": results}
+    except Exception as e:
+        logger.error("Memories error: %s", e)
+        return {"episodes": []}

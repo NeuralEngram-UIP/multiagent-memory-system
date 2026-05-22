@@ -27,6 +27,9 @@ from typing import Any, Dict, List
 from sentence_transformers import SentenceTransformer
 
 import anthropic
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 from memory.working_memory import WorkingMemory
 from memory.episodic_memory import EpisodicMemoryStore
