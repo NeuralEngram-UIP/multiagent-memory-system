@@ -91,450 +91,161 @@ class WorkingMemoryItem:
 class WorkingMemory:
     """
     Bounded conversational context.
-
-    Stores only recent interactions
-    required for active reasoning.
-
-    Design Goals
-    ────────────
-    - bounded growth
-    - thread safety
-    - snapshot-safe retrieval
-    - prompt-friendly formatting
-    - observability support
+    Scoped per agent_id.
     """
 
     def __init__(
         self,
-        capacity: int = (
-            DEFAULT_CAPACITY
-        )
+        capacity: int = DEFAULT_CAPACITY
     ):
-
         if capacity <= 0:
-
-            raise ValueError(
-                "capacity must be > 0"
-            )
+            raise ValueError("capacity must be > 0")
 
         self.capacity = capacity
-
-        self.buffer = deque(
-            maxlen=capacity
-        )
-
-        # IMPORTANT:
-        # RLock is intentionally used
-        # because helper methods may
-        # call other lock-acquiring
-        # methods internally.
-        #
-        # Replacing this with Lock
-        # may introduce deadlocks.
-
+        self._buffers: Dict[str, deque] = {}
         self.lock = threading.RLock()
-
-        # observability metrics
-
         self.total_adds = 0
-
         self.total_evictions = 0
-
         self.total_snapshots = 0
-
         self.total_clears = 0
-
         self.total_truncations = 0
 
         logger.info(
-            "WorkingMemory initialized "
-            "capacity=%s",
+            "WorkingMemory initialized capacity=%s",
             capacity
         )
 
-    # ─────────────────────────────────────────────────────────
-    # Add
-    # ─────────────────────────────────────────────────────────
+    def _get_buffer(self, agent_id: str) -> deque:
+        if agent_id not in self._buffers:
+            self._buffers[agent_id] = deque(
+                maxlen=self.capacity
+            )
+        return self._buffers[agent_id]
 
     def add(
         self,
         role: str,
-        content: str
+        content: str,
+        agent_id: str = "default"
     ):
-        """
-        Add working memory item.
-        """
-
         role = role.strip()
-
         if role not in VALID_ROLES:
-
             raise ValueError(
-                f"role must be one of "
-                f"{VALID_ROLES}"
+                f"role must be one of {VALID_ROLES}"
             )
 
         content = content.strip()
-
         if not content:
-
-            raise ValueError(
-                "content cannot be empty"
-            )
+            raise ValueError("content cannot be empty")
 
         truncated = False
-
-        # graceful truncation
-
-        if len(content) > (
-            MAX_CONTENT_LENGTH
-        ):
-
-            logger.warning(
-                "working memory content "
-                "truncated role=%s "
-                "original_length=%s",
-                role,
-                len(content)
-            )
-
+        if len(content) > MAX_CONTENT_LENGTH:
             allowed_length = (
                 MAX_CONTENT_LENGTH
-                - len(
-                    TRUNCATION_SUFFIX
-                )
+                - len(TRUNCATION_SUFFIX)
             )
-
-            content = (
-                content[
-                    :allowed_length
-                ]
-                + TRUNCATION_SUFFIX
-            )
-
+            content = content[:allowed_length] + TRUNCATION_SUFFIX
             truncated = True
 
-        item = WorkingMemoryItem(
-            role=role,
-            content=content
-        )
+        item = WorkingMemoryItem(role=role, content=content)
 
         with self.lock:
-
             if truncated:
-
                 self.total_truncations += 1
-
-            # detect eviction
-
-            if (
-                len(self.buffer)
-                == self.capacity
-            ):
-
-                evicted = self.buffer[0]
-
+            buffer = self._get_buffer(agent_id)
+            if len(buffer) == self.capacity:
                 self.total_evictions += 1
-
-                logger.info(
-                    "working memory eviction "
-                    "role=%s "
-                    "content_length=%s "
-                    "preview=%s",
-                    evicted.role,
-                    len(
-                        evicted.content
-                    ),
-                    evicted.content[:80]
-                )
-
-            self.buffer.append(item)
-
+            buffer.append(item)
             self.total_adds += 1
-
-            current_size = len(
-                self.buffer
-            )
-
-        logger.debug(
-            "working memory add "
-            "role=%s "
-            "size=%s",
-            role,
-            current_size
-        )
-
-    # ─────────────────────────────────────────────────────────
-    # Recent
-    # ─────────────────────────────────────────────────────────
 
     def recent(
         self,
         limit: int = 5,
-        role_filter: Optional[
-            str
-        ] = None
-    ) -> List[
-        WorkingMemoryItem
-    ]:
-        """
-        Retrieve recent working memory.
-
-        Returned list is snapshot-safe
-        and isolated from future writes.
-        """
-
+        role_filter: Optional[str] = None,
+        agent_id: str = "default"
+    ) -> List[WorkingMemoryItem]:
         if limit <= 0:
-
-            raise ValueError(
-                "limit must be > 0"
-            )
-
-        if (
-            role_filter is not None
-            and role_filter
-            not in VALID_ROLES
-        ):
-
-            raise ValueError(
-                f"invalid role_filter: "
-                f"{role_filter}"
-            )
+            raise ValueError("limit must be > 0")
 
         with self.lock:
-
-            items = list(
-                self.buffer
-            )
+            buffer = self._get_buffer(agent_id)
+            items = list(buffer)
 
         if role_filter:
-
             items = [
-                item
-                for item in items
-                if item.role
-                == role_filter
+                item for item in items
+                if item.role == role_filter
             ]
 
         return items[-limit:]
 
-    # ─────────────────────────────────────────────────────────
-    # Snapshot
-    # ─────────────────────────────────────────────────────────
-
-    def snapshot(
-        self
-    ) -> List[
-        WorkingMemoryItem
-    ]:
-        """
-        Return deep-copy snapshot of
-        working memory buffer.
-
-        Snapshot is fully isolated
-        from future mutations.
-        """
-
-        with self.lock:
-
-            snapshot = copy.deepcopy(
-                list(self.buffer)
-            )
-
-            self.total_snapshots += 1
-
-        logger.debug(
-            "working memory snapshot "
-            "size=%s",
-            len(snapshot)
-        )
-
-        return snapshot
-
-    # ─────────────────────────────────────────────────────────
-    # Chat Messages
-    # ─────────────────────────────────────────────────────────
-
     def as_messages(
         self,
         limit: int = 10,
-        role_filter: Optional[
-            str
-        ] = None,
-
-        # accepted for orchestrator
-        # compatibility
-
-        agent_id: Optional[
-            str
-        ] = None
-    ) -> List[
-        Dict[str, str]
-    ]:
-        """
-        Format working memory into
-        chat-compatible messages.
-
-        agent_id is currently unused
-        but accepted for compatibility
-        with orchestrator APIs.
-        """
-
+        role_filter: Optional[str] = None,
+        agent_id: Optional[str] = None
+    ) -> List[Dict[str, str]]:
         messages = self.recent(
             limit=limit,
-            role_filter=role_filter
+            role_filter=role_filter,
+            agent_id=agent_id or "default"
         )
-
         return [
-            {
-                "role": item.role,
-                "content": item.content
-            }
+            {"role": item.role, "content": item.content}
             for item in messages
         ]
 
-    # ─────────────────────────────────────────────────────────
-    # Prompt Formatting
-    # ─────────────────────────────────────────────────────────
+    def snapshot(
+        self,
+        agent_id: str = "default"
+    ) -> List[WorkingMemoryItem]:
+        with self.lock:
+            buffer = self._get_buffer(agent_id)
+            snapshot = copy.deepcopy(list(buffer))
+            self.total_snapshots += 1
+        return snapshot
 
     def format_for_prompt(
         self,
         limit: int = 10,
-        role_filter: Optional[
-            str
-        ] = None
+        role_filter: Optional[str] = None,
+        agent_id: str = "default"
     ) -> str:
-        """
-        Format working memory
-        into prompt-compatible text.
-
-        Supports optional role filtering.
-        """
-
         messages = self.recent(
             limit=limit,
-            role_filter=role_filter
+            role_filter=role_filter,
+            agent_id=agent_id
         )
-
-        formatted = []
-
-        for item in messages:
-
-            formatted.append(
-                f"{item.role}: "
-                f"{item.content}"
-            )
-
         return "\n".join(
-            formatted
+            f"{item.role}: {item.content}"
+            for item in messages
         )
 
-    # ─────────────────────────────────────────────────────────
-    # Clear
-    # ─────────────────────────────────────────────────────────
-
-    def clear(
-        self
-    ):
-        """
-        Clear working memory buffer.
-        """
-
+    def clear(self, agent_id: str = "default"):
         with self.lock:
-
-            self.buffer.clear()
-
+            if agent_id in self._buffers:
+                self._buffers[agent_id].clear()
             self.total_clears += 1
 
-        logger.info(
-            "working memory cleared"
-        )
-
-    # ─────────────────────────────────────────────────────────
-    # Size
-    # ─────────────────────────────────────────────────────────
-
-    def size(
-        self
-    ) -> int:
-        """
-        Current working memory size.
-        """
-
+    def size(self, agent_id: str = "default") -> int:
         with self.lock:
+            return len(self._get_buffer(agent_id))
 
-            return len(
-                self.buffer
-            )
+    def is_empty(self, agent_id: str = "default") -> bool:
+        return self.size(agent_id) == 0
 
-    # ─────────────────────────────────────────────────────────
-    # Empty Check
-    # ─────────────────────────────────────────────────────────
-
-    def is_empty(
-        self
-    ) -> bool:
-        """
-        Check whether working memory
-        is empty.
-        """
-
-        return self.size() == 0
-
-    # ─────────────────────────────────────────────────────────
-    # Metrics
-    # ─────────────────────────────────────────────────────────
-
-    def metrics(
-        self
-    ) -> Dict[str, int]:
-        """
-        Working memory observability.
-
-        These metrics can later be exported to:
-        - Prometheus
-        - Grafana
-        - OpenTelemetry
-        """
-
+    def metrics(self) -> Dict[str, int]:
         with self.lock:
-
             return {
-                "capacity": (
-                    self.capacity
-                ),
-
-                "current_size": (
-                    len(self.buffer)
-                ),
-
-                "total_adds": (
-                    self.total_adds
-                ),
-
-                "total_evictions": (
-                    self.total_evictions
-                ),
-
-                "total_snapshots": (
-                    self.total_snapshots
-                ),
-
-                "total_truncations": (
-                    self.total_truncations
-                ),
-
-                "total_clears": (
-                    self.total_clears
-                )
+                "capacity": self.capacity,
+                "total_adds": self.total_adds,
+                "total_evictions": self.total_evictions,
+                "total_snapshots": self.total_snapshots,
+                "total_truncations": self.total_truncations,
+                "total_clears": self.total_clears
             }
 
-    # ─────────────────────────────────────────────────────────
-    # Length
-    # ─────────────────────────────────────────────────────────
-
-    def __len__(
-        self
-    ) -> int:
-
-        return self.size()
+    def __len__(self) -> int:
+        return sum(
+            len(b) for b in self._buffers.values()
+        )

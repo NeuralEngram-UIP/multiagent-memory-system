@@ -549,7 +549,13 @@
       <span class="panel-title">Episodic Memory</span>
       <span class="episode-count" id="episodeCount">0 episodes</span>
     </div>
-
+  <!-- Caregiver Alerts -->
+  <div id="alertBanner" style="display:none; margin: 8px 12px; padding: 10px 14px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); border-radius: 10px;">
+  <div style="font-size:11px; font-weight:700; color:#ef4444; font-family:'Space Mono',monospace; margin-bottom:6px;">
+    🚨 CAREGIVER ALERT
+  </div>
+  <div id="alertList" style="font-size:12px; color:#f87171;"></div>
+  </div>
     <div class="memory-list" id="memoryList">
       <div style="text-align:center;padding:40px 16px;color:var(--text3);font-size:13px;">
         No memories yet.<br>Start a conversation!
@@ -563,6 +569,19 @@
     </div>
 
     <!-- Stats -->
+    <!-- Simulate Time -->
+<div style="padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+  <select id="simHours" style="padding: 6px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px;">
+    <option value="6">+6 hours</option>
+    <option value="12" selected>+12 hours</option>
+    <option value="24">+24 hours</option>
+    <option value="48">+48 hours</option>
+    <option value="72">+72 hours</option>
+  </select>
+  <button onclick="simulateTime()" style="flex:1; padding: 6px 12px; background: rgba(124,58,237,0.2); border: 1px solid var(--accent2); border-radius: 8px; color: var(--accent2); font-size: 12px; cursor: pointer;">
+    ⏩ Simulate Time
+  </button>
+</div>
     <div class="stats-footer">
       <div class="stat-box">
         <div class="stat-val" id="statTotal">0</div>
@@ -579,8 +598,8 @@
     </div>
   </div>
 </div>
-
 <script>
+
 const API = 'http://127.0.0.1:8000';
 let activeAgent = 'executor';
 let totalRetrieved = 0;
@@ -608,7 +627,6 @@ function animateRoute(path) {
 
 function addMessage(role, text, meta = {}) {
   const msgs = document.getElementById('messages');
-  // remove welcome
   const welcome = msgs.querySelector('.welcome');
   if (welcome) welcome.remove();
 
@@ -617,7 +635,9 @@ function addMessage(role, text, meta = {}) {
 
   const avatar = document.createElement('div');
   avatar.className = 'msg-avatar';
-  avatar.textContent = role === 'user' ? (document.getElementById('userSelect').value[0].toUpperCase()) : 'M';
+  avatar.textContent = role === 'user'
+    ? document.getElementById('userSelect').value[0].toUpperCase()
+    : 'M';
 
   const body = document.createElement('div');
   body.className = 'msg-body';
@@ -686,65 +706,82 @@ function retentionColor(r) {
   return '#ef4444';
 }
 
-function updateMemoryPanel(newMemory) {
-  if (newMemory) memories.unshift(newMemory);
+// ── REAL fetch from backend ──
+async function fetchAndUpdatePanel(userId) {
+  try {
+    const res = await fetch(`${API}/metrics/${userId}`);
+    if (!res.ok) return;
+    const data = await res.json();
 
+    memories = (data.memories || []).map(m => ({
+      content: m.content,
+      retention: m.retention,
+      stability: m.stability_hours,
+      reviews: m.access_count,
+      importance: m.priority_score,
+      agentId: m.agent_id || 'user',
+      shared: m.shared
+    }));
+
+    renderMemoryPanel(data);
+    await fetchAlerts(userId);  
+  } catch (err) {
+    console.warn('Panel fetch failed:', err);
+  }
+}
+
+function renderMemoryPanel(data) {
   const list = document.getElementById('memoryList');
   list.innerHTML = '';
 
-  if (memories.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:40px 16px;color:var(--text3);font-size:13px;">No memories yet.</div>';
+  if (!memories.length) {
+    list.innerHTML = '<div style="text-align:center;padding:40px 16px;color:var(--text3);font-size:13px;">No memories yet.<br>Start a conversation!</div>';
+    document.getElementById('episodeCount').textContent = '0 episodes';
+    document.getElementById('statTotal').textContent = '0';
+    document.getElementById('statRetention').textContent = '—';
+    drawCurve(1.0);
     return;
   }
 
   memories.slice(0, 8).forEach((m, idx) => {
     const card = document.createElement('div');
     card.className = `memory-card ${idx === 0 ? 'fresh' : ''}`;
-
-    const retention = m.retention || 1.0;
-    const stability = m.stability || 3.6;
-    const reviews = m.reviews || 0;
-    const importance = m.importance || 0.5;
-    const agentId = m.agentId || 'user';
-    const color = retentionColor(retention);
+    const color = retentionColor(m.retention);
 
     card.innerHTML = `
-      <span class="memory-agent-badge badge-${agentId}">${agentId}</span>
+      <span class="memory-agent-badge badge-${m.agentId}">${m.agentId}</span>
       <div class="memory-content">${m.content}</div>
       <div class="memory-stats">
-        <div class="stat">STABILITY <span>${stability}h</span></div>
-        <div class="stat">REVIEWS <span>${reviews}</span></div>
-        <div class="stat">IMPORTANCE <span>${importance}</span></div>
-        <div class="stat">RETENTION <span style="color:${color}">${Math.round(retention*100)}%</span></div>
+        <div class="stat">STABILITY <span>${m.stability.toFixed(1)}h</span></div>
+        <div class="stat">REVIEWS <span>${m.reviews}</span></div>
+        <div class="stat">PRIORITY <span>${(m.importance * 100).toFixed(0)}%</span></div>
+        <div class="stat">RETENTION <span style="color:${color}">${Math.round(m.retention * 100)}%</span></div>
       </div>
       <div class="retention-bar-wrap">
-        <div class="retention-bar" style="width:${retention*100}%;background:${color}"></div>
+        <div class="retention-bar" style="width:${m.retention * 100}%;background:${color}"></div>
       </div>`;
     list.appendChild(card);
   });
 
-  document.getElementById('episodeCount').textContent = `${memories.length} episodes`;
-  document.getElementById('statTotal').textContent = memories.length;
-
-  const avgRet = memories.reduce((s, m) => s + (m.retention || 1), 0) / memories.length;
-  document.getElementById('statRetention').textContent = Math.round(avgRet * 100) + '%';
-
-  drawCurve(avgRet);
+  document.getElementById('episodeCount').textContent = `${data.total_memories} episodes`;
+  document.getElementById('statTotal').textContent = data.total_memories;
+  document.getElementById('statRetention').textContent = Math.round(data.avg_retention * 100) + '%';
+  drawCurve(data.avg_retention, data.avg_stability || 24.0);
+  
 }
 
-function drawCurve(currentRetention) {
+function drawCurve(currentRetention, avgStabilityHours = 24.0) {
   const canvas = document.getElementById('curveChart');
   const ctx = canvas.getContext('2d');
-  canvas.width = canvas.offsetWidth * window.devicePixelRatio || 300;
-  canvas.height = 80 * window.devicePixelRatio || 80;
+  canvas.width = (canvas.offsetWidth || 300) * window.devicePixelRatio;
+  canvas.height = 80 * window.devicePixelRatio;
   ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
   const W = canvas.offsetWidth || 300;
   const H = 80;
-
   ctx.clearRect(0, 0, W, H);
 
-  // Grid line
+  // grid line
   ctx.strokeStyle = '#1e1e2e';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
@@ -754,27 +791,24 @@ function drawCurve(currentRetention) {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Curve
-  const S = 1.5;
-  const lambda = 0.5;
+  // draw curve using real stability
+  const maxHours = avgStabilityHours * 3;
   ctx.beginPath();
   ctx.strokeStyle = '#00e5ff';
   ctx.lineWidth = 2;
-
   for (let x = 0; x <= W; x++) {
-    const t = (x / W) * 48;
-    const r = Math.exp(-lambda * t / S);
+    const t = (x / W) * maxHours;
+    const r = Math.exp(-t / avgStabilityHours);
     const y = H - (r * (H - 8)) - 4;
     if (x === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
 
-  // Current point
-  const tNow = (1 - currentRetention) * 48;
-  const xNow = (tNow / 48) * W;
+  // current retention dot
+  const tNow = -avgStabilityHours * Math.log(Math.max(currentRetention, 0.001));
+  const xNow = Math.min((tNow / maxHours) * W, W - 5);
   const yNow = H - (currentRetention * (H - 8)) - 4;
-
   ctx.beginPath();
   ctx.arc(xNow, yNow, 5, 0, Math.PI * 2);
   ctx.fillStyle = '#00e5ff';
@@ -782,6 +816,52 @@ function drawCurve(currentRetention) {
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 1.5;
   ctx.stroke();
+}
+
+async function simulateTime() {
+  const userId = document.getElementById('userSelect').value;
+  const hours = parseFloat(document.getElementById('simHours').value);
+  
+  try {
+    const res = await fetch(`${API}/simulate_time`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: userId, hours: hours })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      await fetchAndUpdatePanel(userId);
+    }
+  } catch (err) {
+    console.error('Simulate time failed:', err);
+  }
+}
+
+async function fetchAlerts(userId) {
+  if (userId !== 'rajan') {
+    document.getElementById('alertBanner').style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/alerts/${userId}`);
+    const data = await res.json();
+    const banner = document.getElementById('alertBanner');
+    const alertList = document.getElementById('alertList');
+    
+    if (data.alert_count > 0) {
+      banner.style.display = 'block';
+      alertList.innerHTML = data.alerts.map(a => `
+        <div style="margin-bottom:4px;">
+          ${a.alert_level === 'critical' ? '🔴' : '🟡'} 
+          "${a.memory}" — ${Math.round(a.retention * 100)}% retained
+        </div>
+      `).join('');
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch (err) {
+    console.warn('Alerts fetch failed:', err);
+  }
 }
 
 async function sendMessage() {
@@ -813,17 +893,8 @@ async function sendMessage() {
       routingPath: data.routing_path
     });
 
-    // Add to memory panel
-    if (!msg.endsWith('?')) {
-      updateMemoryPanel({
-        content: msg,
-        retention: 1.0,
-        stability: 3.6,
-        reviews: 0,
-        importance: 0.75,
-        agentId: 'user'
-      });
-    }
+    // ── fetch real memory data after every message ──
+    await fetchAndUpdatePanel(userId);
 
   } catch (err) {
     removeTyping();
@@ -832,8 +903,14 @@ async function sendMessage() {
   }
 }
 
-// Init curve
-drawCurve(1.0);
+// also refresh panel when user switches
+document.getElementById('userSelect').addEventListener('change', (e) => {
+  fetchAndUpdatePanel(e.target.value);
+});
+
+// init
+drawCurve(1.0, 24.0);
+fetchAndUpdatePanel(document.getElementById('userSelect').value);
 </script>
 </body>
 </html>

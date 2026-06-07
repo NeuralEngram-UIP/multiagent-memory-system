@@ -138,6 +138,7 @@ class ExecutorAgent(BaseAgent):
     def execute(
         self,
         task: str,
+        agent_id: str = "default",
 
         context: Optional[
             Dict[str, Any]
@@ -162,7 +163,7 @@ class ExecutorAgent(BaseAgent):
 
             Does NOT affect LLM input.
         """
-
+        print(f"!!! EXECUTE CALLED agent_id={agent_id}")  
         task = task.strip()
 
         if not task:
@@ -187,7 +188,8 @@ class ExecutorAgent(BaseAgent):
 
         memories = self.retrieve_memories(
             query=task,
-            embedding=embedding
+            embedding=embedding,
+            agent_id=agent_id
         )
 
         working_context = (
@@ -261,15 +263,16 @@ class ExecutorAgent(BaseAgent):
                 task,
                 augmented_context
             )
-
         except Exception as error:
-
+            print(f">>> STORAGE ERROR: {error}")  # ← add this
             logger.error(
-                "[ExecutorAgent] "
-                "LLM execution failed: %s",
-                error,
-                exc_info=True
-            )
+        "[ExecutorAgent] "
+        "Memory storage failed: %s",
+            error,
+            exc_info=True
+        )
+
+        
 
             raise
 
@@ -295,10 +298,12 @@ class ExecutorAgent(BaseAgent):
                     response
                 )
             )
-
-            self.store_memory(
+            print(f">>> STORING: agent_id={agent_id}, task={task[:40]}")
+            if not task.strip().endswith("?"):
+                self.store_memory(
                 content=task,
                 embedding=embedding,
+                agent_id=agent_id,
                 context=context
             )
 
@@ -307,6 +312,7 @@ class ExecutorAgent(BaseAgent):
                 embedding=(
                     response_embedding
                 ),
+                agent_id=agent_id,
                 context={
                     "role": "assistant"
                 }

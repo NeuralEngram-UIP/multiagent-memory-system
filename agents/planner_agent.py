@@ -167,6 +167,7 @@ class PlannerAgent(BaseAgent):
         self,
         intent: str
     ) -> bool:
+        return True
         """
         Determine if memory retrieval
         should precede execution.
@@ -175,11 +176,7 @@ class PlannerAgent(BaseAgent):
         to avoid unnecessary latency.
         """
 
-        return intent in (
-            TaskIntent.MEMORY,
-            TaskIntent.REASONING
-        )
-
+      
     # ─────────────────────────────────────────────────────────
     # Plan
     # ─────────────────────────────────────────────────────────
@@ -187,6 +184,7 @@ class PlannerAgent(BaseAgent):
     def plan(
         self,
         task: str,
+        agent_id: str = "default",
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
@@ -238,6 +236,7 @@ class PlannerAgent(BaseAgent):
             planner_memories = self.retrieve_memories(
                 query=task,
                 embedding=embedding,
+                agent_id=agent_id,
                 top_k=5
             )
 
@@ -252,21 +251,24 @@ class PlannerAgent(BaseAgent):
             )
 
             # Reinforce retrieved memories
+
             for mem in fused:
+                print(f">>> MEM TYPE: {type(mem)} attrs: {dir(mem)}")
                 try:
                     self.reinforce_memory(
-                        memory_id=mem.id
-                    )
+                     memory_id=mem.episode_id  # ← change mem.id to mem.episode_id
+                 )
                 except Exception as e:
                     logger.warning(
-                        "[PlannerAgent] "
-                        "Reinforce failed: %s", e
-                    )
+                  "[PlannerAgent] "
+                 "Reinforce failed: %s", e
+             )
 
         # ── Phase 3: Execute ─────────────────
 
         result = self.executor.execute(
             task=task,
+            agent_id=agent_id,
             context=context
         )
 

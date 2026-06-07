@@ -72,6 +72,7 @@ class BaseAgent:
         self,
         content: str,
         embedding: List[float],
+        agent_id: Optional[str] = None,
         context: Optional[
             Dict[str, Any]
         ] = None
@@ -84,7 +85,7 @@ class BaseAgent:
         """
 
         return self.memory_store.store(
-            agent_id=self.agent_id,
+            agent_id=agent_id or self.agent_id,
             content=content,
             embedding=embedding,
             context=context
@@ -98,6 +99,7 @@ class BaseAgent:
         self,
         query: str,
         embedding: List[float],
+        agent_id: Optional[str] = None,
         top_k: int = 5,
         token_budget: int = 4000
     ) -> Dict[str, Any]:
@@ -113,7 +115,7 @@ class BaseAgent:
         """
 
         return self.memory_store.retrieve(
-            agent_id=self.agent_id,
+            agent_id=agent_id or self.agent_id,
             query=query,
             embedding=embedding,
             top_k=top_k,

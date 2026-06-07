@@ -663,3 +663,76 @@ class MemoryOrchestrator:
                 "embedding must contain "
                 "numeric values"
             )
+    def metrics(self, agent_id: str = None) -> Dict[str, Any]:
+
+        """
+    Returns live memory panel data.
+    """
+        with self.episodic_lock:
+            all_episodes = self.episodic_memory.get_all()
+
+    # filter by agent if specified
+        episodes = [
+        ep for ep in all_episodes
+        if (
+        agent_id is None
+        or ep.agent_id == agent_id
+        or ep.shared
+    )
+        and ep.context.get("role") != "assistant"
+]
+
+        total = len(episodes)
+        if total == 0:
+            return {
+            "total_memories": 0,
+            "avg_retention": 0.0,
+            "avg_stability": 0.0,
+            "avg_priority": 0.0,
+            "forgotten_count": 0,
+            "memories": []
+        }
+
+        retentions = []
+        stabilities = []
+        priorities = []
+        forgotten = 0
+        memory_list = []
+
+        for ep in episodes:
+            r = ep.retention()        # live R(t)
+            p = ep.priority_score()   # live DMS score
+            s = ep.stability_hours
+
+            retentions.append(r)
+            stabilities.append(s)
+            priorities.append(p)
+
+            if ep.is_forgotten():
+                forgotten += 1
+
+            memory_list.append({
+            "id": ep.episode_id,
+            "content": str(ep.content)[:80],
+            "retention": round(r, 3),
+            "stability_hours": round(s, 2),
+            "priority_score": round(p, 3),
+            "access_count": ep.review_count,
+            "agent_id": ep.agent_id,
+            "shared": ep.shared,
+           })
+
+        return {
+        "total_memories": total,
+        "avg_retention": round(
+            sum(retentions) / total, 3
+        ),
+        "avg_stability": round(
+            sum(stabilities) / total, 2
+        ),
+        "avg_priority": round(
+            sum(priorities) / total, 3
+        ),
+        "forgotten_count": forgotten,
+        "memories": memory_list
+    }

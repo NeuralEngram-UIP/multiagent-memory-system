@@ -587,6 +587,7 @@ class Episode:
     )
 
     review_count: int = 0
+    decay_multiplier: float = 1.0
 
     cross_agent_recall_count: int = 0
 
@@ -613,7 +614,8 @@ class Episode:
 
         return compute_retention(
             self.last_reviewed_at,
-            self.stability_hours,
+            self.stability_hours/self.decay_multiplier,
+
             now
         )
 
@@ -815,30 +817,115 @@ class Episode:
 
 
 class EpisodicMemoryStore:
-    """
-    Thin store wrapper around Episode.
-    Satisfies orchestrator import.
-    """
 
     def __init__(self):
         self._episodes: List[Episode] = []
+        self._init_db()
+        self._load_from_db()
 
-    def add(
-        self,
-        memory_id: str,
-        agent_id: str,
-        content: Any,
-        context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        ep = Episode(
-            episode_id=memory_id,
-            agent_id=agent_id,
-            content=content,
-            context=context or {},
-            shared=(context or {}).get("shared", False)
+    def _init_db(self):
+        conn = get_connection(DB_PATH)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS episodes (
+                episode_id TEXT PRIMARY KEY,
+                agent_id TEXT,
+                content TEXT,
+                context TEXT,
+                shared INTEGER,
+                stability_hours REAL,
+                last_reviewed_at TEXT,
+                review_count INTEGER,
+                importance REAL,
+                agent_feedback REAL,
+                task_success_rate REAL,
+                decay_multiplier REAL,
+                created_at TEXT
+            )
+        """)
+        conn.commit()
+
+    def _load_from_db(self):
+        conn = get_connection(DB_PATH)
+        cursor = conn.execute("SELECT * FROM episodes")
+        rows = cursor.fetchall()
+        for row in rows:
+            ep = Episode(
+                episode_id=row[0],
+                agent_id=row[1],
+                content=row[2],
+                context=safe_json_loads(row[3]),
+                shared=bool(row[4]),
+                stability_hours=row[5],
+                last_reviewed_at=datetime.fromisoformat(row[6]),
+                review_count=row[7],
+                importance=row[8],
+                agent_feedback=row[9],
+                task_success_rate=row[10],
+                decay_multiplier=row[11],
+                created_at=datetime.fromisoformat(row[12])
+            )
+            self._episodes.append(ep)
+
+    def _save_episode(self, ep: Episode):
+        conn = get_connection(DB_PATH)
+        conn.execute("""
+            INSERT OR REPLACE INTO episodes VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+        """, (
+            ep.episode_id,
+            ep.agent_id,
+            str(ep.content),
+            safe_json_dumps(ep.context),
+            int(ep.shared),
+            ep.stability_hours,
+            ep.last_reviewed_at.isoformat(),
+            ep.review_count,
+            ep.importance,
+            ep.agent_feedback,
+            ep.task_success_rate,
+            ep.decay_multiplier,
+            ep.created_at.isoformat()
+        ))
+        conn.commit()
+
+    def _delete_episode(self, episode_id: str):
+        conn = get_connection(DB_PATH)
+        conn.execute(
+            "DELETE FROM episodes WHERE episode_id = ?",
+            (episode_id,)
         )
+        conn.commit()
+    def add(
+    self,
+    memory_id: str,
+    agent_id: str,
+    content: Any,
+    context: Optional[Dict[str, Any]] = None
+) -> str:
+        decay_multiplier = 3.0 if agent_id == "rajan" else 1.0
+    
+    # importance affects stability
+        importance = _heuristic_importance(str(content))
+        stability = DEFAULT_STABILITY_HOURS * (1 + importance * 2)
+    # low importance = 24h, high importance = 72h
+    
+        ep = Episode(
+        episode_id=memory_id,
+        agent_id=agent_id,
+        content=content,
+        context=context or {},
+        shared=(context or {}).get("shared", False),
+        decay_multiplier=decay_multiplier,
+        stability_hours=stability,
+        importance=importance
+    )
         self._episodes.append(ep)
+        self._save_episode(ep)
         return ep.episode_id
+    
+   
+ 
 
     def get_all(self) -> List[Episode]:
         return list(self._episodes)
@@ -867,6 +954,7 @@ class EpisodicMemoryStore:
         self,
         episode_id: str
     ) -> bool:
+        self._delete_episode(episode_id)
         return self.remove(episode_id)
 
     def recall(
@@ -877,7 +965,12 @@ class EpisodicMemoryStore:
         if ep:
             ep.review_count += 1
             ep.last_reviewed_at = datetime.now(timezone.utc)
-            ep = reinforce_memory(ep)
+            ep.stability_hours = reinforce_memory(
+                stability_hours=ep.stability_hours,
+                quality=1.0,
+                review_count=ep.review_count
+            )
+            self._save_episode(ep)
         return ep
 
     def grounded_retrieve(
@@ -906,12 +999,21 @@ class EpisodicMemoryStore:
                 scored.append((score, ep))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [ep for _, ep in scored[:top_k]]
-
+    
     def apply_decay(self) -> None:
+        forgotten = [
+        ep.episode_id
+        for ep in self._episodes
+        if ep.is_forgotten()
+    ]
         self._episodes = [
-            ep for ep in self._episodes
-            if not ep.is_forgotten()
-        ]
+        ep for ep in self._episodes
+        if not ep.is_forgotten()
+    ]
+        for episode_id in forgotten:
+            self._delete_episode(episode_id)
+    
+  
 
     def prune_forgotten(self) -> List[str]:
         forgotten = [
@@ -923,4 +1025,6 @@ class EpisodicMemoryStore:
             ep for ep in self._episodes
             if not ep.is_forgotten()
         ]
+        for episode_id in forgotten:
+            self._delete_episode(episode_id)
         return forgotten

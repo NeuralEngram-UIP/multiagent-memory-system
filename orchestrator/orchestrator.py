@@ -193,27 +193,23 @@ class Orchestrator:
     # ─────────────────────────────────────────────────────────
     # Route — now goes through PlannerAgent
     # ─────────────────────────────────────────────────────────
-
     def route(
-        self,
-        task: str
-    ) -> Dict[str, Any]:
-        """
-        Route task through PlannerAgent.
-
-        PlannerAgent will:
-        - detect intent
-        - decide if memory needed
-        - retrieve if needed
-        - hand off to ExecutorAgent
-        """
-
+    self,
+    task: str,
+    agent_id: str = "default"  # ← add this
+) -> Dict[str, Any]:
         logger.info(
-            "[Orchestrator] Routing task: %r",
-            task[:60]
-        )
+        "[Orchestrator] Routing task: %r agent_id=%s",
+        task[:60],
+        agent_id
+    )
 
-        return self.planner.plan(task=task)
+        return self.planner.plan(
+        task=task,
+        agent_id=agent_id  # ← pass this
+    )
+
+    
 
     # ─────────────────────────────────────────────────────────
     # Stop
