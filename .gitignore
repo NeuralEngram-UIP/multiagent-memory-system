@@ -17,6 +17,7 @@ qdrant_data/
 
 #sqllite store
 episodic_memory.db
+multi_agent_memory.db
 
 # Environment variables
 .env
