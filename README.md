@@ -2,8 +2,17 @@
 
 A multi-agent AI system with biologically-inspired memory management using Ebbinghaus's forgetting curve.
 
-## Project Overview
-This system implements cognitive memory decay and spaced reinforcement across a network of collaborative AI agents.
+## 📌 Project Overview
+
+This project implements a biologically-inspired multi-agent memory system designed around the principles of human cognitive forgetting and reinforcement. It is based on Ebbinghaus’s Forgetting Curve, which models how memory retention decreases over time unless actively reinforced.
+
+The system consists of multiple collaborative AI agents that share a structured memory ecosystem. Each agent generates, retrieves, and updates memory entries while a centralized memory store manages persistence and decay. Over time, less frequently accessed information naturally fades, while important and repeatedly reinforced information becomes stronger and more persistent.
+
+A dedicated decay engine continuously evaluates memory strength using time-based degradation and reinforcement signals. This ensures that the system does not behave like a static database, but rather like a dynamic cognitive system that evolves based on usage patterns.
+
+The orchestrator coordinates communication between agents, ensuring controlled memory sharing, conflict resolution, and efficient routing of contextual information. This enables scalable multi-agent interaction while maintaining memory consistency and relevance.
+
+Overall, the system is designed to simulate realistic memory behavior in AI systems, improving long-term reasoning, reducing noise, and enabling more human-like adaptive intelligence.
 
 ## Architecture
 ```
@@ -23,17 +32,6 @@ Orchestrator
 | `evaluation/` | Testing, metrics, and evaluation scripts |
 | `api/` | REST API layer for external interaction |
 
-## 📌 Project Overview
-
-This project implements a biologically-inspired multi-agent memory system designed around the principles of human cognitive forgetting and reinforcement. It is based on Ebbinghaus’s Forgetting Curve, which models how memory retention decreases over time unless actively reinforced.
-
-The system consists of multiple collaborative AI agents that share a structured memory ecosystem. Each agent generates, retrieves, and updates memory entries while a centralized memory store manages persistence and decay. Over time, less frequently accessed information naturally fades, while important and repeatedly reinforced information becomes stronger and more persistent.
-
-A dedicated decay engine continuously evaluates memory strength using time-based degradation and reinforcement signals. This ensures that the system does not behave like a static database, but rather like a dynamic cognitive system that evolves based on usage patterns.
-
-The orchestrator coordinates communication between agents, ensuring controlled memory sharing, conflict resolution, and efficient routing of contextual information. This enables scalable multi-agent interaction while maintaining memory consistency and relevance.
-
-Overall, the system is designed to simulate realistic memory behavior in AI systems, improving long-term reasoning, reducing noise, and enabling more human-like adaptive intelligence.
 
 ## ⚙️ How It Works
 
