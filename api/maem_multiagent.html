@@ -581,6 +581,12 @@
   <button onclick="simulateTime()" style="flex:1; padding: 6px 12px; background: rgba(124,58,237,0.2); border: 1px solid var(--accent2); border-radius: 8px; color: var(--accent2); font-size: 12px; cursor: pointer;">
     ⏩ Simulate Time
   </button>
+  <button onclick="showComparison()" style="flex:1; padding: 6px 12px; background: rgba(16,185,129,0.2); border: 1px solid var(--accent3); border-radius: 8px; color: var(--accent3); font-size: 12px; cursor: pointer;">
+  📊 Compare Alice vs Rajan
+</button>
+<button onclick="runEvaluation()" style="flex:1; padding: 6px 12px; background: rgba(245,158,11,0.2); border: 1px solid var(--warn); border-radius: 8px; color: var(--warn); font-size: 12px; cursor: pointer;">
+  🧪 Eval
+</button>
 </div>
     <div class="stats-footer">
       <div class="stat-box">
@@ -864,6 +870,176 @@ async function fetchAlerts(userId) {
   }
 }
 
+async function showComparison() {
+  document.getElementById('comparisonModal').style.display = 'flex';
+  
+  const [aliceRes, rajanRes] = await Promise.all([
+    fetch(`${API}/metrics/alice`),
+    fetch(`${API}/metrics/rajan`)
+  ]);
+  
+  const alice = await aliceRes.json();
+  const rajan = await rajanRes.json();
+  
+  // draw comparison chart
+  const canvas = document.getElementById('comparisonChart');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio || 600;
+  canvas.height = 200 * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  
+  const W = canvas.offsetWidth || 600;
+  const H = 200;
+  ctx.clearRect(0, 0, W, H);
+  
+  // grid
+  ctx.strokeStyle = '#1e1e2e';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, H * i / 4);
+    ctx.lineTo(W, H * i / 4);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  
+  // labels
+  ctx.fillStyle = '#475569';
+  ctx.font = '11px Space Mono, monospace';
+  ctx.fillText('100%', 4, 14);
+  ctx.fillText('50%', 4, H/2 + 4);
+  ctx.fillText('0%', 4, H - 4);
+  
+  // Alice curve (blue)
+  const aliceS = alice.avg_stability || 24;
+  const maxH = Math.max(aliceS, (rajan.avg_stability || 8)) * 4;
+  
+  ctx.beginPath();
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 2.5;
+  for (let x = 0; x <= W; x++) {
+    const t = (x / W) * maxH;
+    const r = Math.exp(-t / aliceS);
+    const y = H - (r * (H - 10)) - 5;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  
+  // Rajan curve (red)
+  const rajanS = (rajan.avg_stability || 8) / 3;
+  ctx.beginPath();
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 2.5;
+  for (let x = 0; x <= W; x++) {
+    const t = (x / W) * maxH;
+    const r = Math.exp(-t / rajanS);
+    const y = H - (r * (H - 10)) - 5;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  
+  // legend
+  ctx.fillStyle = '#00e5ff';
+  ctx.fillRect(W - 140, 10, 12, 3);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '11px DM Sans, sans-serif';
+  ctx.fillText('Alice (Normal)', W - 124, 14);
+  
+  ctx.fillStyle = '#ef4444';
+  ctx.fillRect(W - 140, 24, 12, 3);
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('Rajan (AD)', W - 124, 28);
+  
+  // stats
+  document.getElementById('comparisonStats').innerHTML = `
+    <div style="background:#16161f; border:1px solid #1e1e2e; border-radius:10px; padding:16px; text-align:center;">
+      <div style="color:#00e5ff; font-family:'Space Mono',monospace; font-size:11px; margin-bottom:8px;">ALICE — NORMAL</div>
+      <div style="font-size:28px; font-weight:700; color:#00e5ff;">${Math.round((alice.avg_retention || 1) * 100)}%</div>
+      <div style="font-size:11px; color:#475569; margin-top:4px;">Avg Retention</div>
+      <div style="font-size:13px; color:#94a3b8; margin-top:8px;">Stability: ${(alice.avg_stability || 24).toFixed(1)}h</div>
+      <div style="font-size:13px; color:#94a3b8;">Memories: ${alice.total_memories || 0}</div>
+    </div>
+    <div style="background:#16161f; border:1px solid rgba(239,68,68,0.3); border-radius:10px; padding:16px; text-align:center;">
+      <div style="color:#ef4444; font-family:'Space Mono',monospace; font-size:11px; margin-bottom:8px;">RAJAN — ALZHEIMER'S</div>
+      <div style="font-size:28px; font-weight:700; color:#ef4444;">${Math.round((rajan.avg_retention || 1) * 100)}%</div>
+      <div style="font-size:11px; color:#475569; margin-top:4px;">Avg Retention</div>
+      <div style="font-size:13px; color:#94a3b8; margin-top:8px;">Stability: ${(rajan.avg_stability || 8).toFixed(1)}h</div>
+      <div style="font-size:13px; color:#94a3b8;">Memories: ${rajan.total_memories || 0}</div>
+    </div>
+  `;
+}
+
+function closeComparison() {
+  document.getElementById('comparisonModal').style.display = 'none';
+}
+
+async function runEvaluation() {
+  const userId = document.getElementById('userSelect').value;
+  document.getElementById('evalModal').style.display = 'flex';
+  document.getElementById('evalResults').innerHTML = '<div style="text-align:center;color:#94a3b8;padding:20px;">Running evaluation...</div>';
+
+ const testQuestions = [
+    "What is my name?",
+    "What do I love or enjoy?",
+    "What do you know about my work or studies?",
+    "What important things have I told you?"
+];
+
+  try {
+    const res = await fetch(`${API}/evaluate`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        agent_id: userId,
+        test_questions: testQuestions
+      })
+    });
+    const data = await res.json();
+
+    document.getElementById('evalResults').innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px;">
+        <div style="background:#16161f; border-radius:10px; padding:16px; text-align:center;">
+          <div style="font-size:24px; font-weight:700; color:#00e5ff;">${Math.round(data.maem_recall_rate * 100)}%</div>
+          <div style="font-size:11px; color:#475569; margin-top:4px;">MAEM Recall Rate</div>
+        </div>
+        <div style="background:#16161f; border-radius:10px; padding:16px; text-align:center;">
+          <div style="font-size:24px; font-weight:700; color:#ef4444;">0%</div>
+          <div style="font-size:11px; color:#475569; margin-top:4px;">Baseline Recall Rate</div>
+        </div>
+        <div style="background:#16161f; border-radius:10px; padding:16px; text-align:center;">
+          <div style="font-size:24px; font-weight:700; color:#10b981;">+${Math.round(data.improvement * 100)}%</div>
+          <div style="font-size:11px; color:#475569; margin-top:4px;">Improvement</div>
+        </div>
+      </div>
+      <div style="font-family:'Space Mono',monospace; font-size:11px; color:#475569; margin-bottom:12px;">QUESTION BY QUESTION</div>
+      ${data.results.map(r => `
+        <div style="background:#16161f; border:1px solid #1e1e2e; border-radius:10px; padding:14px; margin-bottom:10px;">
+          <div style="font-size:12px; color:#94a3b8; margin-bottom:8px;">Q: ${r.question}</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <div style="font-size:10px; color:#00e5ff; font-family:'Space Mono',monospace; margin-bottom:4px;">MAEM (${r.memories_used} memories used)</div>
+              <div style="font-size:12px; color:#e2e8f0;">${r.maem_response}</div>
+            </div>
+            <div>
+              <div style="font-size:10px; color:#ef4444; font-family:'Space Mono',monospace; margin-bottom:4px;">BASELINE (no memory)</div>
+              <div style="font-size:12px; color:#e2e8f0;">${r.baseline_response}</div>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    `;
+  } catch (err) {
+    document.getElementById('evalResults').innerHTML = '<div style="color:#ef4444;">Evaluation failed. Check server.</div>';
+  }
+}
+
+function closeEval() {
+  document.getElementById('evalModal').style.display = 'none';
+}
+
 async function sendMessage() {
   const input = document.getElementById('msgInput');
   const msg = input.value.trim();
@@ -912,5 +1088,27 @@ document.getElementById('userSelect').addEventListener('change', (e) => {
 drawCurve(1.0, 24.0);
 fetchAndUpdatePanel(document.getElementById('userSelect').value);
 </script>
+<!-- Comparison Modal -->
+<div id="comparisonModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:#111118; border:1px solid #1e1e2e; border-radius:16px; padding:24px; width:700px; max-width:95%;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <span style="font-family:'Space Mono',monospace; font-size:13px; color:#e2e8f0;">MEMORY DECAY COMPARISON</span>
+      <button onclick="closeComparison()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:18px;">✕</button>
+    </div>
+    <canvas id="comparisonChart" style="width:100%; height:200px;"></canvas>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;" id="comparisonStats"></div>
+  </div>
+</div>
+
+<!-- Evaluation Modal -->
+<div id="evalModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:#111118; border:1px solid #1e1e2e; border-radius:16px; padding:24px; width:700px; max-width:95%; max-height:80vh; overflow-y:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <span style="font-family:'Space Mono',monospace; font-size:13px; color:#e2e8f0;">EVALUATION RESULTS</span>
+      <button onclick="closeEval()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:18px;">✕</button>
+    </div>
+    <div id="evalResults"></div>
+  </div>
+</div>
 </body>
 </html>

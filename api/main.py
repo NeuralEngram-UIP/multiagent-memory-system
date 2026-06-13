@@ -280,3 +280,70 @@ def get_alerts(agent_id: str):
     except Exception as e:
         logger.error("Alerts error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+    
+class EvalRequest(BaseModel):
+    agent_id: str = "alice"
+    test_questions: List[str] = []
+
+@app.post("/evaluate")
+def evaluate(req: EvalRequest):
+    try:
+        results = []
+        for question in req.test_questions:
+            # MAEM response (with memory)
+            maem_result = orch.route(
+                task=question,
+                agent_id=req.agent_id
+            )
+            maem_response = maem_result["response"]
+            memories_used = len(
+                maem_result.get("retrieved_memories", {})
+                .get("fused_memory", [])
+            )
+
+            # Baseline response (no memory — empty context)
+            baseline_response = orch.planner.executor.llm_fn(
+                question,
+                []  # ← empty context, no memories
+            )
+
+            # Score baseline — did it mention anything specific?
+            # If response contains "don't know", "no information",
+            # "can't recall" — it failed to recall
+            baseline_failed_keywords = [
+                "don't have", "no information",
+                "don't know", "cannot", "no context",
+                "no memory", "no previous", "no stored",
+                "haven't", "not aware", "no access"
+            ]
+            baseline_recalled = not any(
+                kw in baseline_response.lower()
+                for kw in baseline_failed_keywords
+            )
+
+            # Score MAEM — did it use memories?
+            maem_recalled = memories_used > 0
+
+            results.append({
+                "question": question,
+                "maem_response": maem_response[:200],
+                "baseline_response": baseline_response[:200],
+                "memories_used": memories_used,
+                "maem_used_memory": maem_recalled,
+                "baseline_recalled": baseline_recalled
+            })
+
+        total = len(results)
+        maem_recall = sum(1 for r in results if r["maem_used_memory"])
+        baseline_recall = sum(1 for r in results if r["baseline_recalled"])
+
+        return {
+            "total_questions": total,
+            "maem_recall_rate": round(maem_recall / total, 3) if total > 0 else 0,
+            "baseline_recall_rate": round(baseline_recall / total, 3) if total > 0 else 0,
+            "improvement": round((maem_recall - baseline_recall) / total, 3) if total > 0 else 0,
+            "results": results
+        }
+    except Exception as e:
+        logger.error("Eval error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
